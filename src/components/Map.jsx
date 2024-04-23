@@ -1,5 +1,10 @@
-import { useState, useRef, useEffect } from "react";
-import { FaSearchPlus, FaSearchMinus, FaArrowsAlt } from "react-icons/fa";
+import React, { useState, useRef, useEffect } from "react";
+import {
+  FaSearchPlus,
+  FaSearchMinus,
+  FaArrowsAlt,
+  FaSyncAlt,
+} from "react-icons/fa";
 
 const MapCanvas = () => {
   const canvasRef = useRef(null);
@@ -11,21 +16,22 @@ const MapCanvas = () => {
   const [panMode, setPanMode] = useState(false);
 
   useEffect(() => {
-    if (mapImage) {
-      drawMap();
-    }
+    if (mapImage) drawMap();
   }, [mapImage, lines, points, zoomLevel, panOffset]);
 
   const drawMap = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
+    const { width, height } = canvasRef.current;
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.clearRect(0, 0, width, height);
+    if (mapImage) {
+      ctx.drawImage(mapImage, 0, 0, width, height);
+    }
     ctx.drawImage(
       mapImage,
       panOffset.x,
       panOffset.y,
-      canvas.width * zoomLevel,
-      canvas.height * zoomLevel
+      width * zoomLevel,
+      height * zoomLevel
     );
     drawPoints(ctx);
     drawLines(ctx);
@@ -34,13 +40,16 @@ const MapCanvas = () => {
   const drawPoints = (ctx) => {
     if (!panMode) {
       ctx.fillStyle = "red";
-      points.forEach((point) => {
-        const roundedX = (point.x * zoomLevel + panOffset.x).toFixed(1);
-        const roundedY = (point.y * zoomLevel + panOffset.y).toFixed(1);
-        ctx.beginPath();
-        ctx.arc(roundedX, roundedY, 5, 0, 2 * Math.PI);
-        ctx.fill();
-      });
+      points.forEach(({ x, y }) =>
+        ctx.arc(
+          (x * zoomLevel + panOffset.x).toFixed(1),
+          (y * zoomLevel + panOffset.y).toFixed(1),
+          5,
+          0,
+          2 * Math.PI
+        )
+      );
+      ctx.fill();
     }
   };
 
@@ -61,134 +70,82 @@ const MapCanvas = () => {
     });
   };
 
-  const calculateDistance = (point1, point2) => {
-    const dx = point2.x - point1.x;
-    const dy = point2.y - point1.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
+  const calculateDistance = (point1, point2) =>
+    Math.sqrt((point2.x - point1.x) ** 2 + (point2.y - point1.y) ** 2);
 
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
+  const handleFileChange = ({ target }) => {
+    const file = target.files[0];
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = ({ target: { result } }) => {
       const image = new Image();
-      image.src = e.target.result;
-      image.onload = () => {
-        setMapImage(image);
-      };
+      image.src = result;
+      image.onload = () => setMapImage(image);
     };
     reader.readAsDataURL(file);
   };
 
   const handleClick = (event) => {
     if (!mapImage) return;
-
-    if (panMode) {
-      // Toggle pan mode off
-      setPanMode(false);
-      return;
-    }
-    //Check if pan mode is not active before adding new points
-    if (!panMode) {
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const x = (event.clientX - rect.left - panOffset.x) / zoomLevel;
-      const y = (event.clientY - rect.top - panOffset.y) / zoomLevel;
-
-      const newPoint = { x, y };
-      setPoints([...points, newPoint]);
-
-      if (points.length >= 1) {
-        let closestDistance = Infinity;
-        let closestPoint = null;
-        points.forEach((point) => {
-          const distance = calculateDistance(point, newPoint);
-          if (distance < closestDistance) {
-            closestDistance = distance;
-            closestPoint = point;
-          }
-        });
-
-        if (closestPoint !== null) {
-          const start = closestPoint;
-          const end = newPoint;
-          setLines([...lines, [start, end]]);
-        }
-      }
-    }
+    if (panMode) return setPanMode(false);
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = (event.clientX - rect.left - panOffset.x) / zoomLevel;
     const y = (event.clientY - rect.top - panOffset.y) / zoomLevel;
-
     const newPoint = { x, y };
+
     setPoints([...points, newPoint]);
+    if (points.length < 1) return;
+    let closestDistance = Infinity;
+    let closestPoint = null;
 
-    // Connect to the closest point
-    if (points.length >= 1) {
-      let closestDistance = Infinity;
-      let closestPoint = null;
-      points.forEach((point) => {
-        const distance = calculateDistance(point, newPoint);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestPoint = point;
-        }
-      });
-
-      if (closestPoint !== null) {
-        const start = closestPoint;
-        const end = newPoint;
-        setLines([...lines, [start, end]]);
+    points.forEach((point) => {
+      const distance = calculateDistance(point, newPoint);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestPoint = point;
       }
-    }
+    });
+
+    if (closestPoint !== null) setLines([...lines, [closestPoint, newPoint]]);
   };
 
   const handleDeletePoint = (index) => {
     const deletedPoint = points[index];
     const updatedPoints = points.filter((_, i) => i !== index);
     setPoints(updatedPoints);
-
-    // Remove lines connected to the deleted point
-    const updatedLines = lines.filter(([start, end]) => {
-      return !(start === deletedPoint || end === deletedPoint);
-    });
+    const updatedLines = lines.filter(
+      ([start, end]) => !(start === deletedPoint || end === deletedPoint)
+    );
     setLines(updatedLines);
   };
 
-  const handleZoomIn = () => {
-    setZoomLevel(Math.min(3, zoomLevel + 0.2)); // Limit max zoom level to 3
-  };
+  const handleZoomIn = () => setZoomLevel(Math.min(3, zoomLevel + 0.2));
 
   const handleZoomOut = () => {
-    // Calculate the maximum allowed zoom out level based on canvas dimensions and original image size
+    if (!mapImage) return; // Ensure map image is loaded
     const canvas = canvasRef.current;
     const maxZoomOutLevelX = canvas.width / mapImage.width;
     const maxZoomOutLevelY = canvas.height / mapImage.height;
     const maxZoomOutLevel = Math.min(maxZoomOutLevelX, maxZoomOutLevelY);
-
-    // Decrease the zoom level step-wise until it fits the canvas dimensions
-    const newZoomLevel = Math.max(maxZoomOutLevel, zoomLevel - 0.2); // Decrease zoom level by 0.2 step-wise
-    setZoomLevel(newZoomLevel);
+    setZoomLevel(Math.max(maxZoomOutLevel, zoomLevel - 0.2)); // Decrease zoom level by 0.2 step-wise
   };
 
-  const handlePan = () => {
-    setPanMode(!panMode);
-  };
+  const handlePan = () => setPanMode(!panMode);
 
   const handleCanvasMouseMove = (event) => {
-    if (event.buttons === 1) {
-      // Check if mouse is clicked (button === 1)
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const x = event.movementX / zoomLevel; // Calculate movementX relative to zoom level
-      const y = event.movementY / zoomLevel; // Calculate movementY relative to zoom level
-      setPanOffset((prevOffset) => ({
-        x: prevOffset.x + x,
-        y: prevOffset.y + y,
-      }));
-    }
+    if (event.buttons !== 1) return;
+    const canvas = canvasRef.current;
+    const { movementX, movementY } = event;
+    setPanOffset((prevOffset) => ({
+      x: prevOffset.x + movementX / zoomLevel,
+      y: prevOffset.y + movementY / zoomLevel,
+    }));
+  };
+
+  const handleResetZoom = () => {
+    setZoomLevel(1);
+    setPanOffset({ x: 0, y: 0 });
   };
 
   return (
@@ -200,7 +157,7 @@ const MapCanvas = () => {
         height={600}
         onClick={handleClick}
         onMouseMove={handleCanvasMouseMove}
-        style={{ border: "1px solid black" }}
+        style={{ border: "1px solid black", borderColor: "red" }}
       />
       <div
         style={{
@@ -219,19 +176,22 @@ const MapCanvas = () => {
         <button onClick={handlePan}>
           <FaArrowsAlt />
         </button>
+        <button onClick={handleResetZoom}>
+          <FaSyncAlt />
+        </button>
       </div>
       <div>
-  <h2>Selected Points</h2>
-  <ul>
-    {!panMode &&
-      points.map((point, index) => (
-        <li key={index}>
-          X: {point.x.toFixed(1)}, Y: {point.y.toFixed(1)}
-          <button onClick={() => handleDeletePoint(index)}>Delete</button>
-        </li>
-      ))}
-  </ul>
-</div>
+        <h2>Selected Points</h2>
+        <ul>
+          {!panMode &&
+            points.map((point, index) => (
+              <li key={index}>
+                X: {point.x.toFixed(1)}, Y: {point.y.toFixed(1)}
+                <button onClick={() => handleDeletePoint(index)}>Delete</button>
+              </li>
+            ))}
+        </ul>
+      </div>
     </div>
   );
 };
